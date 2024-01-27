@@ -3,6 +3,7 @@ import * as process from "process";
 import * as dotenv from "dotenv";
 import ready from "./listeners/ready";
 import interactionCreate from "./listeners/interactionCreate";
+import { GatewayIntentBits } from 'discord-api-types/v9';
 
 console.log("Bot is starting...");
 
