@@ -1,23 +1,39 @@
 import {
+    ActionRowBuilder,
     Client,
     CommandInteraction,
-    MessageActionRow,
-    MessageSelectMenu, MessageSelectOptionData,
-    ReactionManager
+    Message,
+    MessageReaction,
+    PartialMessage, ReactionCollector,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder, User
 } from "discord.js";
 import { Command } from "../Command";
-import { youtubeApi } from "../Bot";
+import {client, youtubeApi} from "../Bot";
 import { EmbedBuilder } from "@discordjs/builders";
 import { youtube_v3 } from "googleapis";
 import getAllPlaylists from "../data/transactions/playlists/getAll";
 import { Maybe, None, Some } from "monet";
+import { Emoji } from "../data/types/global";
+import { playFromSearch } from "./playUrl";
+import { Music } from "../data/types/music";
 
 type SearchListResponse = youtube_v3.Schema$SearchListResponse;
 type SearchResult = youtube_v3.Schema$SearchResult;
 type ChannelResult = youtube_v3.Schema$ChannelListResponse;
+interface SearchRes extends SearchResult {
+    channel?: string;
+}
 
-const resultList: SearchResult[] = [];
-const resultPage: number = 0;
+interface SearchState {
+    message?: Message,
+    resultList: SearchResult[],
+    resultPage: number
+}
+export const searchState: SearchState = {
+    resultList: [] as SearchResult[],
+    resultPage: 0
+}
 
 export const SearchVideo: Command = {
     name: "search",
@@ -32,43 +48,66 @@ export const SearchVideo: Command = {
         }
     ],
     run: async (client: Client, interaction) => {
+        resetSearch();
         youtubeApi.searchAll(interaction.options.get("keyword")?.value as string, 10, { type: 'video' })
             .then(async (response: SearchListResponse) => {
-                resultList.push(...response.items || []);
-                if (resultList && resultList.length > 0) {
-                    const res = resultList[resultPage];
+                searchState.resultList.push(...response.items || []);
+                if (searchState.resultList && searchState.resultList.length > 0) {
+                    const res = searchState.resultList[searchState.resultPage];
                     const embedMessage = await setEmbedMessage(res);
                     const selectOptions = await getPlaylistOptions();
                     const select = setSelect(selectOptions);
 
-                    sendResultMessage(interaction, embedMessage, select, resultPage === 0);
+                    sendResultMessage(interaction, embedMessage, select);
                 }
             });
     }
 };
 
-const collectorFilter = (reaction: any, user: any) => {
-    console.log(reaction)
-    return reaction.emoji.name === '⬅' || reaction.emoji.name === '▶' || reaction.emoji.name === '➡'
-};
-const sendResultMessage = (interaction: CommandInteraction, embedMessage: any, maybeSelect: Maybe<MessageActionRow>, isFirst: boolean) => {
+const collectorFilter = (reaction: any, user: any) =>
+    ['⬅', '▶', '➡'].includes(reaction.emoji.name) && !user.bot;
+const sendResultMessage = (interaction: CommandInteraction, embedMessage: any, maybeSelect: Maybe<StringSelectMenuBuilder>) => {
     const options = maybeSelect.cata(
         () => ({ embeds: [embedMessage] }),
-        (select) => ({ embeds: [embedMessage], components: [select] })
+        (select) => {
+            const row = new ActionRowBuilder().addComponents(select);
+            return({
+                embeds: [embedMessage],
+                components: [row]
+            })
+        }
     );
     interaction.channel!.send(options)
-        .then((message) => {
-            const reactionManager: ReactionManager = message.reactions as ReactionManager;
-                reactionManager.message.react(isFirst ? '▶' : '⬅')
-                    .then(() => reactionManager.message.react(isFirst ? '➡' : '▶'))
-                    .then(() => { isFirst && reactionManager.message.react('➡') })
-                    .then(() => {
-                        console.log("collector")
-                        const collector = reactionManager.message.createReactionCollector({ filter: collectorFilter, time: 15_000 });
-                        collector.on('collect', (reaction) => console.log(reaction))
-                        collector.on('end', (collected) => console.log(reactionManager.message.reactions))
-                    });
-        })
+        .then(putReactionsAndHandler);
+}
+const editMessage = (message: Message<boolean> | PartialMessage, embedMessage: any, maybeSelect: Maybe<StringSelectMenuBuilder>) => {
+    const options = maybeSelect.cata(
+        () => ({ embeds: [embedMessage] }),
+        (select) => {
+            const row = new ActionRowBuilder().addComponents(select);
+            return({
+                embeds: [embedMessage],
+                components: [row]
+            })
+        }
+    );
+    message.edit(options)
+        .then(() => putReactionsAndHandler(message as Message));
+}
+const putReactionsAndHandler = (message: Message) => {
+    message.react('⬅')
+        .then(() => message.react('▶'))
+        .then(() => message.react('➡'))
+        .then(() => {
+            searchState.message = message;
+            const collector = message.createReactionCollector({ filter: collectorFilter, time: 15_000 });
+            collector.on('collect', (reaction, user) => {
+                handleReaction(collector, reaction, user);
+            });
+            collector.on('end', () => {
+                resetSearch();
+            });
+        });
 }
 
 const setEmbedMessage = async (searchResult: SearchResult) => {
@@ -79,12 +118,15 @@ const setEmbedMessage = async (searchResult: SearchResult) => {
         .addFields([
             {name: "Commands", value: ":arrow_left: Previous \u200B :arrow_forward: Play \u200B :arrow_right: Next"},
         ])
+        .setFooter({
+            text: `${searchState.resultPage + 1} / ${searchState.resultList.length}`
+        })
         .toJSON();
     if (searchResult.id?.videoId) {
         embedMessage.url = `https://www.youtube.com/watch?v=${searchResult.id.videoId}`;
     }
     if (searchResult.snippet?.channelId) {
-        const channelResult: ChannelResult = await youtubeApi.searchChannel(searchResult.snippet?.channelId);
+        const channelResult: ChannelResult = await youtubeApi.searchChannel(searchResult.snippet!.channelTitle!);
         if (channelResult.items && channelResult.items?.length > 0) {
             const channel = channelResult.items[0];
             embedMessage.author = {
@@ -97,25 +139,71 @@ const setEmbedMessage = async (searchResult: SearchResult) => {
     return embedMessage;
 }
 
-const setSelect = (options: MessageSelectOptionData[]): Maybe<MessageActionRow> =>
-    options.length > 0 ? Some(new MessageActionRow()
-        .addComponents(
-            new MessageSelectMenu()
+const setSelect = (options: StringSelectMenuOptionBuilder[]): Maybe<StringSelectMenuBuilder> =>
+    options.length > 0 ? Some(new StringSelectMenuBuilder()
                 .setCustomId("select_search_to_playlist")
                 .setPlaceholder("Add to playlist...")
                 .addOptions(options)
-        )) : None();
+        ) : None();
 
-const getPlaylistOptions = (): Promise<MessageSelectOptionData[]> =>
+const getPlaylistOptions = (): Promise<StringSelectMenuOptionBuilder[]> =>
     getAllPlaylists()
         .then((errorsOrPlaylists) => errorsOrPlaylists.cata(
             () => [],
             (playlists) => playlists
-                .map((playlist) => (
-                    {
-                        label: playlist.name,
-                        value: playlist.name
-                    })
+                .map((playlist) => new StringSelectMenuOptionBuilder()
+                    .setLabel(playlist.name)
+                    .setValue(playlist.name)
                 )
             )
         );
+
+const handleReaction = async (collector: ReactionCollector, reaction: MessageReaction, user: User) => {
+    switch (reaction.emoji.name) {
+        case Emoji.LeftArrow:
+            if (searchState.resultPage > 0) {
+                searchState.resultPage--;
+                const res = searchState.resultList[searchState.resultPage];
+                const embedMessage = await setEmbedMessage(res);
+                const selectOptions = await getPlaylistOptions();
+                const select = setSelect(selectOptions);
+                collector.stop();
+                editMessage(reaction.message, embedMessage, select);
+            }
+            break;
+        case Emoji.Play:
+            const video = searchState.resultList[searchState.resultPage];
+            const guild = client.guilds.cache.get(reaction!.message!.guild!.id);
+            const guildUser = guild ? guild.members.cache.get(user.id) : undefined;
+            if (video.id?.videoId && guildUser) {
+                const channel = guildUser.voice.channel;
+                const music: Music = {
+                    name: "Url",
+                    url: `https://www.youtube.com/watch?v=${video.id.videoId}`
+                }
+                if (channel) {
+                    collector.stop();
+                    playFromSearch(channel, reaction.message as Message, music);
+                }
+            }
+            break;
+        case Emoji.RightArrow:
+            if (searchState.resultPage < searchState.resultList.length - 1) {
+                searchState.resultPage++;
+                const res = searchState.resultList[searchState.resultPage];
+                const embedMessage = await setEmbedMessage(res);
+                const selectOptions = await getPlaylistOptions();
+                const select = setSelect(selectOptions);
+                collector.stop();
+                editMessage(reaction.message, embedMessage, select);
+            }
+            break;
+    }
+}
+
+const resetSearch = () => {
+    searchState.resultList = [];
+    searchState.resultPage = 0;
+    if (searchState.message)
+        searchState.message.reactions.removeAll();
+}

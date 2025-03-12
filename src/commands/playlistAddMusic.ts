@@ -6,9 +6,9 @@ import { Either, Maybe, None, Some } from "monet";
 import { error, Error } from "../data/types/error";
 import { Playlist } from "../data/types/playlist";
 
-export const PlaylistAddYoutube: Command = {
+export const PlaylistAddMusic: Command = {
     name: "addMusic",
-    description: "Add a youtube music to a playlist",
+    description: "Add a stored music to a playlist",
     type: 1,
     options: [
         {
@@ -17,13 +17,8 @@ export const PlaylistAddYoutube: Command = {
             type: 3,
             required: true
         },{
-            name: "url",
-            description: "url of the youtube video",
-            type: 3,
-            required: true
-        },{
             name: "name",
-            description: "name for the music",
+            description: "name of the music",
             type: 3,
             required: true
         }
@@ -34,7 +29,7 @@ export const PlaylistAddYoutube: Command = {
         const name = interaction.options.get("name")?.value as string;
         const user = interaction.user;
 
-        getPlaylistByName(name)
+        getPlaylistByName(playlist)
             .then(checkIfPlaylistCanBeEdited(user.username))
             .then(addMusicToPlaylist(name, user.username))
             .then((maybeErrors) => maybeErrors.cata(

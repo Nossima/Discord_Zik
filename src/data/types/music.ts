@@ -4,14 +4,15 @@ export const Musics = () => database('musics');
 
 export interface Music {
     url: string,
-    name?: string,
+    name: string,
     author?: string,
 }
 
 export interface MusicRow {
+    id: number,
     url: string,
     name: string,
-    author: string
+    author?: string
 }
 
 export const musicFromRow = (musicRow: MusicRow): Music => {
@@ -21,3 +22,5 @@ export const musicFromRow = (musicRow: MusicRow): Music => {
         author: musicRow.author
     } as Music);
 }
+
+export type MusicState = "play" | "wait" | "pause" | "none" | "error";

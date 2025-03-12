@@ -1,6 +1,6 @@
 import { Client } from "discord.js";
 import { Command} from "../Command";
-import {channelConnection, waitList} from "./play";
+import {channelConnection, waitList} from "./playUrl";
 
 export const Stop: Command = {
     name: "stop",

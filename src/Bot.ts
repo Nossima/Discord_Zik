@@ -1,4 +1,4 @@
-import { Client, Intents } from "discord.js";
+import {Client, GatewayIntentBits} from "discord.js";
 import * as process from "process";
 import * as dotenv from "dotenv";
 import ready from "./listeners/ready";
@@ -14,16 +14,17 @@ dotenv.config();
 const token = process.env.TOKEN_BETA || "";
 export const apiKey = process.env.API_KEY || "";
 
-const intents = new Intents();
-intents.add(
-    Intents.FLAGS.GUILDS,
-    Intents.FLAGS.GUILD_MESSAGES,
-    Intents.FLAGS.GUILD_VOICE_STATES,
-    Intents.FLAGS.DIRECT_MESSAGE_REACTIONS,
-    Intents.FLAGS.DIRECT_MESSAGE_REACTIONS
-);
+const intents = [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.DirectMessageReactions
+];
 
-const client = new Client({ intents });
+export const client = new Client({ intents });
+
 export const youtubeApi = new YoutubeDataAPI(apiKey);
 
 export const database = knex({

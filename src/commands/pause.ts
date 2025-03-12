@@ -1,7 +1,7 @@
 import { Client } from "discord.js";
 import { Command } from "../Command";
 import { AudioPlayerStatus } from "@discordjs/voice";
-import { discordPlayer } from "./play";
+import { discordPlayer } from "./playUrl";
 
 export const Pause: Command = {
     name: "pause",

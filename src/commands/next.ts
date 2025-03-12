@@ -1,6 +1,6 @@
 import { Client } from "discord.js";
 import { Command } from "../Command";
-import { playMusic, waitList } from "./play";
+import { playMusic, waitList } from "./playUrl";
 
 export const Next: Command = {
     name: "next",
